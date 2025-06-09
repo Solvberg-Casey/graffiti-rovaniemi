@@ -264,100 +264,62 @@ function setCameraToView(viewIndex, instant = false) {
     updateUIForView(viewIndex);
 }
 
-function handleSceneAndFooterState(targetView, prevView) {
-    const targetType = targetView.type;
-    const prevType = prevView ? prevView.type : null;
+function handleSceneAndFooterState(targetView, prevView) { // prevView теперь используется
+            const targetType = targetView.type;
+            const prevType = prevView ? prevView.type : null; 
 
-    // 1. Управление футером
-    if (targetType === "final_fade") { pageFooterUI.style.height = '92vh'; }
-    else if (targetType === "final_look" || targetType === "box_rotation") { pageFooterUI.style.height = '13vh'; }
-    else { pageFooterUI.style.height = '8vh'; }
+            if (targetType === "final_fade") { pageFooterUI.style.height = '92vh'; }
+            else if (targetType === "final_look" || targetType === "box_rotation") { pageFooterUI.style.height = '13vh'; }
+            else { pageFooterUI.style.height = '8vh'; }
 
-    const rotatingBox = allBoxes[numActualBoxes - 1]; // Бокс №8
+            const isRotationActive = (targetType === "box_rotation");
+            const isFadeActive = (targetType === "final_fade");
+            const isFinalLookActive = (targetType === "final_look");
+            
+            const rotatingBox = allBoxes[numActualBoxes - 1]; 
 
-    // 2. Управление видимостью объектов сцены
-    const isFinalStageForOtherBoxes = (targetType === "final_look" || targetType === "box_rotation" || targetType === "final_fade");
-    
-    plane.visible = !isFinalStageForOtherBoxes; // Пол скрыт на всех "финальных" этапах
+            plane.visible = !(isFinalLookActive || isRotationActive || isFadeActive);
 
-    allBoxes.forEach(b => {
-        if (b !== rotatingBox) { // Логика для всех боксов, КРОМЕ Бокса №8
-            if (isFinalStageForOtherBoxes) {
-                b.visible = false; // Скрываем остальные боксы на финальных этапах
-            } else { // general или box_focus
-                b.visible = true;
-                b.material.opacity = 1;
+            allBoxes.forEach(b => {
+                if (isRotationActive || isFadeActive || isFinalLookActive) { 
+                    b.visible = (b === rotatingBox); 
+                    if (b === rotatingBox) {
+                        if (targetType !== "final_fade" || (targetType === "final_fade" && !isAnimating) ) {
+                             b.material.opacity = 1;
+                        }
+                        if (targetType === "box_rotation" || targetType === "final_look") {
+                            b.material.opacity = 1;
+                        }
+                    }
+                } else { 
+                    b.visible = true;
+                    b.material.opacity = 1;
+                }
+            });
+
+            // --- ИСПРАВЛЕННАЯ ЛОГИКА СБРОСА ВРАЩЕНИЯ ---
+            if (prevType === "box_rotation" && targetType !== "box_rotation" && targetType !== "final_fade") {
+                // prevView.box здесь должен быть rotatingBox, так как prevType === "box_rotation"
+                // Однако, для большей надежности, если prevView.box не определен, используем rotatingBox
+                const boxToReset = prevView && prevView.box ? prevView.box : rotatingBox;
+                if (boxToReset) {
+                    boxToReset.rotation.y = boxToReset.userData.initialRotationY;
+                }
+            }
+            if ((prevType === "final_look" || prevType === "final_fade") && 
+                (targetType === "general" || targetType === "box_focus")) {
+                rotatingBox.rotation.y = rotatingBox.userData.initialRotationY;
+            }
+            // --- Конец исправленной логики ---
+            
+            if (targetType === "general") { textPanelUI.style.display = 'none'; }
+            else { textPanelUI.style.display = 'block';
+                if (targetType !== "final_fade" || (targetType === "final_fade" && !isAnimating)) {
+                    textPanelUI.style.opacity = 1;
+                }
             }
         }
-    });
 
-    // 3. Отдельное и более явное управление состоянием Бокса №8 (rotatingBox)
-    if (targetType === "general" || targetType === "box_focus") {
-        rotatingBox.visible = true;
-        rotatingBox.material.opacity = 1;
-        rotatingBox.rotation.y = rotatingBox.userData.initialRotationY; // Сброс вращения
-    } else if (targetType === "final_look") {
-        rotatingBox.visible = true;
-        rotatingBox.material.opacity = 1;
-        // Если мы перешли С этапа вращения или растворения, сбрасываем вращение
-        if (prevType === "box_rotation" || prevType === "final_fade") {
-            rotatingBox.rotation.y = rotatingBox.userData.initialRotationY;
-        }
-        // Если переходим на View 5.1 (Base for Rotation), то вращение уже должно быть initial
-        if (targetView.name === "View 5.1 (Base for Rotation)") { // Это условие для следующего этапа, но здесь оно не нужно
-             // rotatingBox.rotation.y = rotatingBox.userData.initialRotationY;
-        }
-    } else if (targetType === "box_rotation") {
-        rotatingBox.visible = true;
-        rotatingBox.material.opacity = 1;
-        // Вращение будет установлено анимацией GSAP.
-        // Если это View 5.1 (Base for Rotation), сбросим вращение здесь, перед анимацией GSAP.
-        if (targetView.name === "View 5.1 (Base for Rotation)") {
-            rotatingBox.rotation.y = rotatingBox.userData.initialRotationY;
-        }
-    } else if (targetType === "final_fade") {
-        // Перед началом анимации GSAP, Бокс №8 должен быть видим и непрозрачен.
-        // GSAP timeline onComplete установит visible = false, opacity = 0.
-        if (isAnimating) { // Если мы только НАЧИНАЕМ анимацию к fade
-            rotatingBox.visible = true;
-            rotatingBox.material.opacity = 1;
-        } else { 
-            // Если мы уже НА ЭТОМ виде и анимация завершилась (например, при мгновенном переходе)
-            // Это состояние должно быть установлено onComplete GSAP
-            // rotatingBox.visible = false; 
-            // rotatingBox.material.opacity = 0;
-        }
-    }
-    
-    // Дополнительное явное восстановление, если мы ушли с final_fade
-    if (prevType === "final_fade" && targetType !== "final_fade") {
-        rotatingBox.visible = true;
-        rotatingBox.material.opacity = 1;
-        // Вращение для final_look или box_rotation (если это 5.1) уже должно быть обработано выше или GSAP
-        if (targetType === "final_look" || (targetType === "box_rotation" && targetView.name === "View 5.1 (Base for Rotation)")) {
-             rotatingBox.rotation.y = rotatingBox.userData.initialRotationY;
-        }
-    }
-
-
-    // 4. Управление текстовой панелью
-    if (targetType === "general") {
-        textPanelUI.style.display = 'none';
-    } else { 
-        textPanelUI.style.display = 'block';
-        if (targetType === "final_fade") {
-            // Opacity управляется GSAP, но если анимация не идет (мы уже на этом виде)
-            // и это не начало анимации, то opacity должен быть 0.
-            if (!isAnimating && currentViewIndex === FINAL_FADE_VIEW_INDEX) { // Уже на final_fade, анимация завершена
-                 // textPanelUI.style.opacity = 0; // Это сделает onComplete GSAP
-            } else { // Перед началом анимации fade или на других этапах
-                textPanelUI.style.opacity = 1;
-            }
-        } else {
-            textPanelUI.style.opacity = 1;
-        }
-    }
-}
 
 function onMouseWheel(event) {
     event.preventDefault(); if (!canProcessScroll || isAnimating) return;
