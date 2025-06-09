@@ -264,90 +264,83 @@ function setCameraToView(viewIndex, instant = false) {
     updateUIForView(viewIndex);
 }
 
-    function handleSceneAndFooterState(targetView, prevView) {
-        const targetType = targetView.type;
-        const prevType = prevView ? prevView.type : null; 
+function handleSceneAndFooterState(targetView, prevView) {
+            const targetType = targetView.type;
+            const prevType = prevView ? prevView.type : null; 
 
-        // Футер
-        if (targetType === "final_fade") { pageFooterUI.style.height = '92vh'; }
-        else if (targetType === "final_look" || targetType === "box_rotation") { pageFooterUI.style.height = '13vh'; }
-        else { pageFooterUI.style.height = '8vh'; }
+            // Футер
+            if (targetType === "final_fade") { pageFooterUI.style.height = '92vh'; }
+            else if (targetType === "final_look" || targetType === "box_rotation") { pageFooterUI.style.height = '13vh'; }
+            else { pageFooterUI.style.height = '8vh'; }
 
-        const isRotationActive = (targetType === "box_rotation");
-        const isFadeActive = (targetType === "final_fade");
-        const isFinalLookActive = (targetType === "final_look");
-        
-        const rotatingBox = allBoxes[numActualBoxes - 1]; // Это наш Бокс №8
+            const isRotationActive = (targetType === "box_rotation");
+            const isFadeActive = (targetType === "final_fade");
+            const isFinalLookActive = (targetType === "final_look");
+            
+            const rotatingBox = allBoxes[numActualBoxes - 1]; // Это наш Бокс №8
 
-        // Видимость пола
-        plane.visible = !(isFinalLookActive || isRotationActive || isFadeActive);
+            // Видимость пола
+            plane.visible = !(isFinalLookActive || isRotationActive || isFadeActive);
 
-        // Видимость и прозрачность боксов
-        allBoxes.forEach(b => {
-            if (isRotationActive || isFinalLookActive) { 
-                // На этапах final_look и box_rotation виден ТОЛЬКО rotatingBox (он же targetView.box)
-                b.visible = (b === rotatingBox);
-                if (b === rotatingBox) {
-                    b.material.opacity = 1; // Он должен быть полностью видим
+            // Видимость и прозрачность боксов
+            allBoxes.forEach(b => {
+                if (isRotationActive || isFinalLookActive) { 
+                    b.visible = (b === rotatingBox); // targetView.box на этих этапах это rotatingBox
+                    if (b === rotatingBox) {
+                        b.material.opacity = 1; 
+                    }
+                } else if (isFadeActive) {
+                    b.visible = (b === rotatingBox); // Только rotatingBox виден, opacity управляется GSAP
+                    // Если анимация fade завершена (isAnimating === false), GSAP в onComplete уже сделал visible=false, opacity=0
+                    // Если анимация идет (isAnimating === true), GSAP управляет opacity
+                } else { // general или box_focus
+                    b.visible = true;
+                    b.material.opacity = 1;
                 }
-            } else if (isFadeActive) {
-                // На этапе final_fade виден только rotatingBox, его opacity анимируется GSAP
-                b.visible = (b === rotatingBox);
-                // opacity управляется GSAP, здесь не трогаем, если isAnimating
-                if (b === rotatingBox && !isAnimating) { // Если анимация завершена (в onComplete)
-                    b.material.opacity = 0; // Он должен быть уже 0
-                    b.visible = false;      // И невидимым
-                } else if (b === rotatingBox && isAnimating) {
-                    // Во время анимации пусть остается visible, GSAP управляет opacity
-                    // b.material.opacity = b.material.opacity; // Не меняем
+            });
+
+            // Восстановление состояния rotatingBox при уходе с final_fade
+            if (prevType === "final_fade" && targetType !== "final_fade") {
+                rotatingBox.visible = true;
+                rotatingBox.material.opacity = 1;
+                // Если переходим на этап, где бокс должен быть не повернут
+                if (targetType === "final_look" || targetType === "general" || targetType === "box_focus") {
+                    rotatingBox.rotation.y = rotatingBox.userData.initialRotationY;
                 }
-            } else { // general или box_focus
-                b.visible = true;
-                b.material.opacity = 1;
+                // Если переходим на box_rotation, его targetRotationY будет применен GSAP
             }
-        });
-
-        // --- ВАЖНО: Восстановление состояния rotatingBox при уходе с final_fade ---
-        if (prevType === "final_fade" && targetType !== "final_fade") {
-            rotatingBox.visible = true;
-            rotatingBox.material.opacity = 1;
-            // Также, если мы переходим на этап, где он не должен быть повернут
-            // (например, final_look или обратно на box_focus/general)
-            if (targetType === "final_look" || targetType === "general" || targetType === "box_focus") {
+            
+            // Сброс вращения при уходе с этапов вращения (кроме перехода на fade)
+            if (prevType === "box_rotation" && targetType !== "box_rotation" && targetType !== "final_fade") {
+                const boxToReset = prevView && prevView.box ? prevView.box : rotatingBox; // prevView.box должен быть rotatingBox
+                if (boxToReset) {
+                    boxToReset.rotation.y = boxToReset.userData.initialRotationY;
+                }
+            }
+            // Сброс вращения при уходе с final_look на general/box_focus
+             if (prevType === "final_look" && (targetType === "general" || targetType === "box_focus")) {
                 rotatingBox.rotation.y = rotatingBox.userData.initialRotationY;
             }
-            // Если переходим на box_rotation (View 5.4 -> 5.3 и т.д.), 
-            // то targetView.targetRotationY будет применено GSAP.
-            // Но если это View 5.4 (возврат к initialRotationY), то здесь это тоже сработает.
-        }
-        // --- Конец восстановления ---
-
-
-        // --- Логика сброса вращения при уходе с этапов вращения (кроме перехода на fade) ---
-        if (prevType === "box_rotation" && targetType !== "box_rotation" && targetType !== "final_fade") {
-            const boxToReset = prevView && prevView.box ? prevView.box : rotatingBox;
-            if (boxToReset) {
-                boxToReset.rotation.y = boxToReset.userData.initialRotationY;
+            
+            // Текстовая панель
+            if (targetType === "general") {
+                textPanelUI.style.display = 'none';
+            } else { 
+                textPanelUI.style.display = 'block';
+                // Управляем opacity: если это не final_fade в процессе анимации, то opacity = 1.
+                // Если это final_fade и анимация завершена, GSAP уже установил opacity = 0.
+                // Если это final_fade и анимация идет, GSAP управляет opacity.
+                if (targetType !== "final_fade" || (targetType === "final_fade" && !isAnimating) ) {
+                    // Если это не final_fade, ИЛИ это final_fade, но анимация УЖЕ завершилась (мы в onComplete)
+                    // то ставим opacity 1, КРОМЕ случая, когда это onComplete для final_fade (там opacity должен быть 0)
+                    if (targetType === "final_fade" && !isAnimating) {
+                        // Не трогаем, onComplete GSAP справится
+                    } else {
+                        textPanelUI.style.opacity = 1;
+                    }
+                }
             }
         }
-        // При переходе с final_look на general/box_focus (если мы не прошли через вращение)
-         if (prevType === "final_look" && (targetType === "general" || targetType === "box_focus")) {
-            rotatingBox.rotation.y = rotatingBox.userData.initialRotationY;
-        }
-        
-        // Текстовая панель
-        if (targetType === "general") {
-            textPanelUI.style.display = 'none';
-        } else { 
-            textPanelUI.style.display = 'block';
-            // Если это не final_fade в процессе анимации, панель непрозрачна
-            if (targetType !== "final_fade" || (targetType === "final_fade" && !isAnimating)) {
-                // Если мы НА final_fade и анимация ЗАВЕРШЕНА, opacity 0 (устанавливается в onComplete)
-                // Если мы УХОДИМ с final_fade, то opacity должен стать 1
-                textPanelUI.style.opacity = (targetType === "final_fade" && !isAnimating) ? 0 : 1;
-            }
-        }
-    }
 
 function onMouseWheel(event) {
     event.preventDefault(); if (!canProcessScroll || isAnimating) return;
