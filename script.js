@@ -323,7 +323,3 @@ function onWindowResize() {
 function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
 
 document.addEventListener('DOMContentLoaded', init);
-
-</script>
-</body>
-</html>
