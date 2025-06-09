@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-// Глобальные переменные и константы (объявляются в начале)
+// Глобальные переменные и константы
 let scene, camera, renderer;
 let plane, allBoxes = [];
 let arcFocusTarget, circleCenterPoint;
@@ -30,12 +30,10 @@ let currentScrollThreshold = SCROLL_THRESHOLD;
 let scrollTimeout = null;
 let canProcessScroll = true;
 
-// DOM Элементы
+// DOM Элементы (будут получены в init)
 let pageFooterUI, navArrowsUI, textPanelUI, prevBoxBtn, nextBoxBtn, homeButton;
 
-// --- Функция инициализации и основные функции ---
 function init() {
-    // Получаем DOM элементы здесь, после того как DOM загружен
     pageFooterUI = document.getElementById('page-footer');
     navArrowsUI = document.getElementById('nav-arrows');
     textPanelUI = document.getElementById('text-panel');
@@ -81,71 +79,78 @@ function init() {
         color: 0xffffff, 
         roughness: 0.7, 
         metalness: 0.1, 
-        transparent: true // Для fade out
+        transparent: true 
     });
 
     const textureLoader = new THREE.TextureLoader();
-    const texturePath = './textures/'; // Путь к папке с текстурами
+    const texturePath = './textures/'; 
 
     const angleStep = numActualBoxes > 1 ? totalArcAngleRad / (numActualBoxes - 1) : 0;
     const startAngle = -totalArcAngleRad / 2;
 
     for (let i = 0; i < numActualBoxes; i++) {
         const boxNumber = i + 1;
-        const materials = [];
+        const materials = []; // Массив материалов для текущего бокса
 
         // Порядок граней: right, left, top, bottom, front, back (+X, -X, +Y, -Y, +Z, -Z)
-        const faceNames = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-        const sideFaceTextureNames = { // Сопоставление имени грани с именем файла (без boxN_)
-            'front': `box${boxNumber}_front.jpg`, // Пример: box1_front.jpg
-            'back':  `box${boxNumber}_back.jpg`,
-            'left':  `box${boxNumber}_left.jpg`,
-            'right': `box${boxNumber}_right.jpg`
-        };
-
-        faceNames.forEach(faceName => {
-            if (faceName === 'top' || faceName === 'bottom') {
-                materials.push(defaultBoxMaterial.clone()); // Используем базовый материал для верха и низа
-            } else {
-                const textureFile = sideFaceTextureNames[faceName];
-                if (textureFile) {
-                    try {
-                        const texture = textureLoader.load(
-                            texturePath + textureFile,
-                            // onLoad callback (успех)
-                            (loadedTexture) => {
-                                // Можно добавить Anisotropy для лучшего вида текстур под углом
-                                loadedTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-                                loadedTexture.needsUpdate = true; // Иногда требуется
-                                // console.log(`Текстура ${textureFile} загружена.`);
-                            },
-                            // onProgress callback (необязательно)
-                            undefined,
-                            // onError callback (ошибка загрузки)
-                            (err) => {
-                                console.warn(`Ошибка загрузки текстуры ${texturePath + textureFile}:`, err);
-                                // В этом случае материал останется с defaultBoxMaterial,
-                                // но т.к. мы уже создали материалы ниже, это не сработает без пересоздания.
-                                // Проще сразу пушить defaultBoxMaterial если есть сомнения.
-                            }
-                        );
-                        materials.push(new THREE.MeshStandardMaterial({ 
-                            map: texture,
-                            roughness: 0.7, 
-                            metalness: 0.1,
-                            transparent: true // Для fade out
-                        }));
-                    } catch (e) {
-                        console.warn(`Исключение при попытке загрузить текстуру ${texturePath + textureFile}. Используется дефолтный материал.`);
-                        materials.push(defaultBoxMaterial.clone());
-                    }
-                } else {
-                    materials.push(defaultBoxMaterial.clone()); // Если имя грани не в sideFaceTextureNames
-                }
-            }
-        });
+        // Индексы:         0,     1,     2,   3,      4,     5
+        const faceOrder = ['right', 'left', 'top', 'bottom', 'front', 'back'];
         
-        const box = new THREE.Mesh(boxGeometry, materials); // Передаем массив материалов
+        for (let j = 0; j < 6; j++) {
+            const faceName = faceOrder[j];
+            let material;
+
+            if (faceName === 'top' || faceName === 'bottom') {
+                material = defaultBoxMaterial.clone();
+            } else {
+                // Формируем имя файла текстуры для боковых граней
+                // Пример: 'box1_front.jpg'
+                const textureFile = `box${boxNumber}_${faceName}.jpg`;
+                
+                // Создаем материал, который попытается загрузить текстуру
+                // Если загрузка не удастся, onError заменит этот материал на defaultBoxMaterial
+                let textureAttemptMaterial = new THREE.MeshStandardMaterial({
+                    // map: null, // Изначально map нет, он будет установлен в onLoad
+                    color: 0xffffff, // Базовый цвет на случай, если текстура не загрузится до onError
+                    roughness: 0.7, 
+                    metalness: 0.1,
+                    transparent: true
+                });
+                material = textureAttemptMaterial; // Используем его по умолчанию
+
+                textureLoader.load(
+                    texturePath + textureFile,
+                    // onLoad
+                    (texture) => {
+                        texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+                        texture.needsUpdate = true;
+                        textureAttemptMaterial.map = texture; // Применяем текстуру
+                        textureAttemptMaterial.color.set(0xffffff); // Убираем базовый цвет, если текстура загрузилась
+                        textureAttemptMaterial.needsUpdate = true;
+                        // console.log(`Текстура ${textureFile} загружена для бокса ${boxNumber}, грань ${faceName}`);
+                    },
+                    // onProgress
+                    undefined,
+                    // onError
+                    (err) => {
+                        console.warn(`Ошибка загрузки текстуры ${texturePath + textureFile}. Используется дефолтный материал для грани ${faceName} бокса ${boxNumber}.`);
+                        // Так как мы уже создали materials[j] как textureAttemptMaterial,
+                        // и если текстура не загрузилась, он останется без map,
+                        // что приведет к отображению его color (белый).
+                        // Чтобы он ТОЧНО был как defaultBoxMaterial, нужно было бы его заменить,
+                        // но это сложно из-за асинхронности и того, что Mesh уже мог быть создан.
+                        // Проще всего, если textureAttemptMaterial изначально настроен как defaultBoxMaterial.
+                        // В данном случае, он уже имеет те же color, roughness, metalness.
+                        // Если бы defaultBoxMaterial был другого цвета, пришлось бы делать так:
+                        // materials[j] = defaultBoxMaterial.clone();
+                        // Но так как они похожи, текущий подход сработает визуально.
+                    }
+                );
+            }
+            materials.push(material);
+        }
+        
+        const box = new THREE.Mesh(boxGeometry, materials);
         const angle = startAngle + i * angleStep;
         box.position.set( circleCenterPoint.x + arcRadius * Math.sin(angle), circleCenterPoint.y, circleCenterPoint.z + arcRadius * Math.cos(angle) );
         box.castShadow = true; 
@@ -157,12 +162,8 @@ function init() {
 
     arcFocusTarget = (numActualBoxes > 0) ? new THREE.Vector3( circleCenterPoint.x, boxHeight / 2 + yOffset, circleCenterPoint.z + arcRadius ) : new THREE.Vector3(0, boxHeight / 2 + yOffset, 0);
     
-    // --- Определение cameraViews ---
-    // View 1
     cameraViews.push({ navLabel: "Домой", viewId: 0, name: "View 1: Top Down", type: "general", position: new THREE.Vector3(arcFocusTarget.x, arcFocusTarget.y + 40, arcFocusTarget.z + 5), lookAt: arcFocusTarget.clone(), fov: 60 });
-    // View 2
     cameraViews.push({ navLabel: "Общий вид", viewId: 1, name: "View 2: Arc Front", type: "general", position: new THREE.Vector3(arcFocusTarget.x, 1.6, circleCenterPoint.z + arcRadius + 30), lookAt: arcFocusTarget.clone(), fov: 55 });
-    // View 3.x
     const cameraHeightBoxFocus = 1.6, cameraOffsetX = 1.5, cameraOffsetZFromFrontFace = 4.0;
     allBoxes.forEach((box, index) => {
         const boxPos = box.position;
@@ -170,17 +171,11 @@ function init() {
         const targetLookAtPos = new THREE.Vector3(targetCameraPosition.x, cameraHeightBoxFocus, boxPos.z);
         cameraViews.push({ navLabel: (index === 0) ? "Бокс 1" : null, viewId: BOX_FOCUS_VIEWS_START_INDEX + index, name: `View 3.${index + 1}: Focus Box ${index + 1}`, type: "box_focus", boxIndex: index, position: targetCameraPosition, lookAt: targetLookAtPos, fov: 50 });
     });
-    // View 4
     const lastBoxFocusView = cameraViews[BOX_FOCUS_VIEWS_START_INDEX + numActualBoxes - 1];
-    const finalCamPos_s = lastBoxFocusView.position.clone(); 
-    finalCamPos_s.x += 1.0; 
-    finalCamPos_s.y -= 0.3; // ИЗМЕНЕНО с 0.5 на 0.3
-    const finalLookAt_s = lastBoxFocusView.lookAt.clone(); 
-    finalLookAt_s.x += 1.0; 
-    finalLookAt_s.y -= 0.3; // ИЗМЕНЕНО с 0.5 на 0.3
+    const finalCamPos_s = lastBoxFocusView.position.clone(); finalCamPos_s.x += 1.0; finalCamPos_s.y -= 0.3;
+    const finalLookAt_s = lastBoxFocusView.lookAt.clone(); finalLookAt_s.x += 1.0; finalLookAt_s.y -= 0.3;
     cameraViews.push({ navLabel: "До вращения", viewId: cameraViews.length, name: `View 4: Shifted Look Box ${numActualBoxes}`, type: "final_look", boxIndex: numActualBoxes - 1, position: finalCamPos_s, lookAt: finalLookAt_s, fov: lastBoxFocusView.fov });
     FINAL_LOOK_VIEW_INDEX = cameraViews.length - 1;
-    // View 5.x
     BOX_ROTATION_VIEWS_START_INDEX = cameraViews.length;
     const lastBoxForRotation = allBoxes[numActualBoxes - 1];
     const initialRotY = lastBoxForRotation.userData.initialRotationY;
@@ -188,7 +183,6 @@ function init() {
     cameraViews.push({ navLabel: null, viewId: cameraViews.length, name: "View 5.2 (Rotate +90 deg)", type: "box_rotation", box: lastBoxForRotation, targetRotationY: initialRotY + Math.PI / 2, text: "Бокс повернут на 90° по часовой.", cameraViewIndexToClone: FINAL_LOOK_VIEW_INDEX });
     cameraViews.push({ navLabel: null, viewId: cameraViews.length, name: "View 5.3 (Rotate +180 deg)", type: "box_rotation", box: lastBoxForRotation, targetRotationY: initialRotY + Math.PI, text: "Бокс повернут на 180° по часовой.", cameraViewIndexToClone: FINAL_LOOK_VIEW_INDEX });
     cameraViews.push({ navLabel: null, viewId: cameraViews.length, name: "View 5.4 (Rotate +360 deg)", type: "box_rotation", box: lastBoxForRotation, targetRotationY: initialRotY + 2 * Math.PI, text: "Бокс совершил полный оборот по часовой.", cameraViewIndexToClone: FINAL_LOOK_VIEW_INDEX });
-    // View 6
     FINAL_FADE_VIEW_INDEX = cameraViews.length;
     cameraViews.push({ navLabel: "Финал", viewId: cameraViews.length, name: "View 6: Fade Out", type: "final_fade", box: lastBoxForRotation, cameraViewIndexToClone: FINAL_LOOK_VIEW_INDEX });
     
@@ -234,7 +228,7 @@ function updateHeaderNavActiveState(activeIndex) {
 function setCameraToView(viewIndex, instant = false) {
     if (isAnimating && !instant) return; if (viewIndex < 0 || viewIndex >= cameraViews.length) return;
     const targetViewConfig = cameraViews[viewIndex]; isAnimating = true; canProcessScroll = false;
-    const prevView = cameraViews[currentViewIndex]; // Получаем предыдущий конфиг до обновления currentViewIndex
+    const prevView = cameraViews[currentViewIndex]; 
     currentViewIndex = viewIndex;
     currentScrollThreshold = SCROLL_THRESHOLD; 
     updateHeaderNavActiveState(currentViewIndex);
@@ -349,4 +343,5 @@ function onWindowResize() {
 
 function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
 
+// Запускаем init после загрузки DOM
 document.addEventListener('DOMContentLoaded', init);
